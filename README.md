@@ -6,8 +6,6 @@ A standalone Python pipeline for extracting, filtering, and summarizing End-Use 
 
 The pipeline pulls per-building annual simulation results from S3, filters by building stock characteristics (type, vintage, climate zone, state), and produces population-level summary statistics for every energy end-use and every upgrade scenario. Output is ready for Tableau, Excel, or downstream analysis.
 
-**This is not a game-specific tool.** It produces general-purpose energy analysis outputs that downstream consumers can reference.
-
 ## Installation
 
 ```bash
