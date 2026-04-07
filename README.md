@@ -89,6 +89,8 @@ print(results.building_detail.head())
 | `include_compact_summary` | `--no-compact-summary` (to disable) | True | Key Metrics end-use EUI breakdown |
 | `include_applicable_summary` | `--no-applicable-summary` (to disable) | True | Applicable-only (matched baseline) summary |
 | `use_weights` | `--no-weights` (to disable) | True | Weighted population statistics |
+| `use_aggregate` | `--use-aggregate` | False | Read aggregate files (one row per archetype) instead of per-sample county files. Much faster for state/national runs. Energy/EUI medians are correct; bill statistics are approximate. |
+| `aggregate_scope` | `--aggregate-scope` | `state` | `state` — one file per state per upgrade; `national` — one file per upgrade for entire US stock (states filter still applied post-read). Only used when `use_aggregate=True`. |
 | `use_cache` | `--no-cache` (to disable) | True | Cache downloaded parquet files locally |
 | `refresh_cache` | `--refresh-cache` | False | Re-download files even if cached |
 | `cache_dir` | `--cache-dir` | `downloads/` | Root directory for local cache |
@@ -136,7 +138,7 @@ Data comes from NREL's [End-Use Load Profiles for the U.S. Building Stock](https
 s3://oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/
 ```
 
-The pipeline targets `metadata_and_annual_results/` (per-building full-metadata files), not the aggregate files.
+By default the pipeline reads from `metadata_and_annual_results/by_state_and_county/full/` (per-sample rows, correct for all statistics). Set `use_aggregate=True` to read from `metadata_and_annual_results_aggregates/` instead — significantly faster for state or national runs, with correct energy/EUI statistics and approximate bill statistics.
 
 ## Supported Releases
 

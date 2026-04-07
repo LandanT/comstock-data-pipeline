@@ -32,9 +32,15 @@ class FilteredData:
 # --- Column resolution helpers ---
 
 def _find_col(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
+    """Find column by exact match first, then by prefix match (handles ..unit suffixes)."""
     for c in candidates:
         if c in df.columns:
             return c
+    # Prefix match: handles columns like "in.sqft..ft2" when searching for "in.sqft"
+    col_prefixes = {col.split("..")[0]: col for col in df.columns}
+    for c in candidates:
+        if c in col_prefixes:
+            return col_prefixes[c]
     return None
 
 
@@ -246,11 +252,15 @@ def apply_filters(config: PipelineConfig, pulled: PulledData) -> FilteredData:
 
     # Represented floor area
     represented_area = 0.0
+    if not cols["sqft"]:
+        log.warning("Could not find sqft column (tried 'in.sqft', 'in.floor_area_ft2' and ..unit variants). represented_area_ft2 will be 0.")
     if cols["sqft"] and n_baseline > 0:
         if cols["weight"]:
             represented_area = float((baseline_df[cols["sqft"]] * baseline_df[cols["weight"]]).sum())
+            log.info("represented_area_ft2 computed using weight column '%s'", cols["weight"])
         else:
             represented_area = float(baseline_df[cols["sqft"]].sum())
+            log.warning("No weight column found — represented_area_ft2 is raw sqft sum (unweighted).")
 
     # Sample size warning
     if n_baseline < config.min_sample_warning:

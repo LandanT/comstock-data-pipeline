@@ -93,9 +93,15 @@ def _compute_stats(
 # ---------------------------------------------------------------------------
 
 def _find_col(df: pd.DataFrame, candidates: list[str]) -> Optional[str]:
+    """Find column by exact match first, then by prefix match (handles ..unit suffixes)."""
     for c in candidates:
         if c in df.columns:
             return c
+    # Prefix match: handles columns like "in.sqft..ft2" when searching for "in.sqft"
+    col_prefixes = {col.split("..")[0]: col for col in df.columns}
+    for c in candidates:
+        if c in col_prefixes:
+            return col_prefixes[c]
     return None
 
 
@@ -271,7 +277,7 @@ def summarize(
             "upgrade_name": upgrade_name,
             "n_buildings": n_buildings,
             "n_applicable": n_applicable,
-            "represented_area_ft2": filtered.represented_area_ft2 if uid == 0 else np.nan,
+            "represented_area_ft2": filtered.represented_area_ft2,
         }
 
         # Stats for each column

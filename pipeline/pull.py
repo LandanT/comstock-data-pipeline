@@ -299,6 +299,65 @@ def _find_files_metadata(
     return results
 
 
+def _find_files_aggregate_by_state(
+    fs: s3fs.S3FileSystem,
+    base_path: str,
+    state_abbrs: list[str],
+    upgrade_ids: list[int],
+) -> list[tuple[int, str]]:
+    """Return (upgrade_id, file_path) tuples from aggregate by_state path."""
+    results = []
+    agg_base = f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet"
+    for state in state_abbrs:
+        state_path = f"{agg_base}/state={state}"
+        try:
+            files = fs.ls(state_path, detail=False)
+        except Exception:
+            log.warning("No aggregate files found for state=%s at %s", state, state_path)
+            continue
+        for uid in upgrade_ids:
+            for fpath in files:
+                fname = fpath.split("/")[-1].lower()
+                if uid == 0 and "baseline" in fname and fname.endswith(".parquet"):
+                    results.append((uid, fpath))
+                    break
+                elif uid != 0 and f"upgrade{uid:02d}" in fname and fname.endswith(".parquet"):
+                    results.append((uid, fpath))
+                    break
+                elif uid != 0 and f"upgrade{uid}_" in fname and fname.endswith(".parquet"):
+                    results.append((uid, fpath))
+                    break
+    return results
+
+
+def _find_files_aggregate_national(
+    fs: s3fs.S3FileSystem,
+    base_path: str,
+    upgrade_ids: list[int],
+) -> list[tuple[int, str]]:
+    """Return (upgrade_id, file_path) tuples from aggregate national path."""
+    results = []
+    nat_path = f"{base_path}/metadata_and_annual_results_aggregates/national/parquet"
+    try:
+        files = fs.ls(nat_path, detail=False)
+    except Exception:
+        log.warning("No aggregate national files found at %s", nat_path)
+        return results
+    for uid in upgrade_ids:
+        for fpath in files:
+            fname = fpath.split("/")[-1].lower()
+            if uid == 0 and "baseline" in fname and fname.endswith(".parquet"):
+                results.append((uid, fpath))
+                break
+            elif uid != 0 and f"upgrade{uid:02d}" in fname and fname.endswith(".parquet"):
+                results.append((uid, fpath))
+                break
+            elif uid != 0 and f"upgrade{uid}_" in fname and fname.endswith(".parquet"):
+                results.append((uid, fpath))
+                break
+    return results
+
+
 def pull(config: PipelineConfig, manifest: DatasetManifest) -> PulledData:
     """Run Phase 2: pull per-building data for all requested upgrades."""
     fs = _get_fs()
@@ -325,16 +384,47 @@ def pull(config: PipelineConfig, manifest: DatasetManifest) -> PulledData:
 
     state_abbrs = config.state_abbreviations()
 
-    # Determine file list based on preferred partition
-    partition = manifest.preferred_partition
-    if state_abbrs and partition == "by_state_and_county":
-        file_list = _find_files_by_state_and_county(fs, base_path, state_abbrs, requested_upgrades)
-    elif state_abbrs and partition == "by_state":
-        file_list = _find_files_by_state(fs, base_path, state_abbrs, requested_upgrades)
-    elif partition == "national":
-        file_list = _find_files_national(fs, base_path, requested_upgrades)
+    # Aggregate mode: read pre-collapsed files (one row per bldg_id per upgrade)
+    if config.use_aggregate:
+        log.warning(
+            "use_aggregate=True (scope=%s): reading aggregate files. "
+            "Energy/EUI statistics are correct. Bill statistics are approximate "
+            "(bills summed across samples per archetype, not per-building values).",
+            config.aggregate_scope,
+        )
+        if config.aggregate_scope == "national" and manifest.has_aggregate_national:
+            file_list = _find_files_aggregate_national(fs, base_path, requested_upgrades)
+            partition = "aggregate_national"
+        elif manifest.has_aggregate_by_state:
+            if not state_abbrs:
+                # No state filter — list all available aggregate state dirs
+                agg_base = f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet"
+                dirs = []
+                try:
+                    dirs = fs.ls(agg_base, detail=False)
+                except Exception:
+                    pass
+                state_abbrs = [d.split("state=")[-1] for d in dirs if "state=" in d]
+            file_list = _find_files_aggregate_by_state(fs, base_path, state_abbrs, requested_upgrades)
+            partition = "aggregate_by_state"
+        else:
+            log.warning("use_aggregate=True but no aggregate paths found — falling back to non-aggregate.")
+            file_list = []
+            partition = manifest.preferred_partition
     else:
-        file_list = _find_files_metadata(fs, base_path, requested_upgrades)
+        file_list = []
+        partition = manifest.preferred_partition
+
+    # Non-aggregate (or fallback)
+    if not config.use_aggregate or not file_list:
+        if state_abbrs and partition == "by_state_and_county":
+            file_list = _find_files_by_state_and_county(fs, base_path, state_abbrs, requested_upgrades)
+        elif state_abbrs and partition == "by_state":
+            file_list = _find_files_by_state(fs, base_path, state_abbrs, requested_upgrades)
+        elif partition == "national":
+            file_list = _find_files_national(fs, base_path, requested_upgrades)
+        else:
+            file_list = _find_files_metadata(fs, base_path, requested_upgrades)
 
     if not file_list:
         raise RuntimeError(

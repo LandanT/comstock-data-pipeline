@@ -127,6 +127,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Root directory for cached parquet files (default: downloads/)",
     )
 
+    # Aggregate mode
+    p.add_argument(
+        "--use-aggregate",
+        action="store_true",
+        help=(
+            "Read aggregate files (one row per building archetype per upgrade) instead of "
+            "per-sample county files. Much faster for state or national runs. "
+            "Energy/EUI statistics are correct; bill statistics are approximate."
+        ),
+    )
+    p.add_argument(
+        "--aggregate-scope",
+        choices=["state", "national"],
+        default="state",
+        help=(
+            "Scope for aggregate reads: 'state' (one file per state per upgrade) or "
+            "'national' (one file per upgrade, entire US stock). Only used with --use-aggregate."
+        ),
+    )
+
     # Misc
     p.add_argument("--min-sample-warning", type=int, default=100, help="Warn if N below this threshold")
     p.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
@@ -164,6 +184,8 @@ def main():
         use_cache=not args.no_cache,
         refresh_cache=args.refresh_cache,
         cache_dir=args.cache_dir,
+        use_aggregate=args.use_aggregate,
+        aggregate_scope=args.aggregate_scope,
         min_sample_warning=args.min_sample_warning,
     )
 

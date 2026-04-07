@@ -49,6 +49,10 @@ class DatasetManifest:
     data_dictionary: Optional[pd.DataFrame] = None
     data_dictionary_source: Optional[str] = None
 
+    # Aggregate paths (metadata_and_annual_results_aggregates/)
+    has_aggregate_by_state: bool = False
+    has_aggregate_national: bool = False
+
     # Partition style used for reads
     preferred_partition: str = "national"   # "by_state_and_county", "by_state", "national", "metadata"
 
@@ -131,6 +135,8 @@ def _probe_structure(
         "has_national": False,
         "has_metadata_dir": False,
         "available_states": [],
+        "has_aggregate_by_state": False,
+        "has_aggregate_national": False,
     }
 
     county_full = f"{base_path}/metadata_and_annual_results/by_state_and_county/full/parquet"
@@ -161,6 +167,16 @@ def _probe_structure(
         result["has_metadata_dir"] = True
         log.info("Found metadata/ directory")
 
+    agg_state_path = f"{base_path}/metadata_and_annual_results_aggregates/by_state"
+    if _path_exists(fs, agg_state_path):
+        result["has_aggregate_by_state"] = True
+        log.info("Found aggregate by_state path")
+
+    agg_national_path = f"{base_path}/metadata_and_annual_results_aggregates/national"
+    if _path_exists(fs, agg_national_path):
+        result["has_aggregate_national"] = True
+        log.info("Found aggregate national path")
+
     return result
 
 
@@ -169,8 +185,27 @@ def _find_sample_file(
     base_path: str,
     structure: dict,
     preferred_states: Optional[list[str]],
+    config: Optional["PipelineConfig"] = None,
 ) -> Optional[str]:
     """Find a single baseline parquet file to read schema from."""
+    # If aggregate mode, try aggregate paths first for schema
+    if config and config.use_aggregate:
+        if config.aggregate_scope == "national" and structure["has_aggregate_national"]:
+            nat_path = f"{base_path}/metadata_and_annual_results_aggregates/national/parquet"
+            files = [f for f in _list_dir(fs, nat_path) if f.endswith(".parquet") and "baseline" in f.lower()]
+            if files:
+                return files[0]
+        if structure["has_aggregate_by_state"]:
+            states_to_try = preferred_states or []
+            if not states_to_try:
+                dirs = _list_dir(fs, f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet")
+                states_to_try = [d.split("state=")[-1] for d in dirs if "state=" in d][:3]
+            for state in states_to_try[:3]:
+                state_path = f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet/state={state}"
+                files = [f for f in _list_dir(fs, state_path) if f.endswith(".parquet") and "baseline" in f.lower()]
+                if files:
+                    return files[0]
+
     # Prefer by_state_and_county > by_state > national > metadata
     if structure["has_by_state_and_county"]:
         county_base = f"{base_path}/metadata_and_annual_results/by_state_and_county/full/parquet"
@@ -366,7 +401,7 @@ def discover(config: PipelineConfig) -> "DatasetManifest":
 
     # 4. Find a sample parquet file to read schema
     state_abbrs = config.state_abbreviations()
-    sample_file = _find_sample_file(fs, base_path, structure, state_abbrs)
+    sample_file = _find_sample_file(fs, base_path, structure, state_abbrs, config)
     if sample_file is None:
         raise RuntimeError(
             f"Could not find any parquet file under s3://{base_path}. "
@@ -396,6 +431,8 @@ def discover(config: PipelineConfig) -> "DatasetManifest":
         has_by_state=structure["has_by_state"],
         has_national=structure["has_national"],
         has_metadata_dir=structure["has_metadata_dir"],
+        has_aggregate_by_state=structure["has_aggregate_by_state"],
+        has_aggregate_national=structure["has_aggregate_national"],
         available_states=structure.get("available_states", []),
         available_upgrades_on_disk=avail_upgrades,
         energy_columns=col_info["energy_columns"],
@@ -429,7 +466,15 @@ def _print_manifest_summary(m: DatasetManifest) -> None:
     print(f"  Detected energy unit:    {m.detected_energy_unit}")
     print(f"  Has pre-computed EUIs:   {m.has_intensity_columns}")
     print(f"  Partition strategy:      {m.preferred_partition}")
+    weight_found = any(c in m.id_columns for c in ("weight", "sample_weight"))
+    print(f"  Weight column found:     {'yes (' + next(c for c in m.id_columns if c in ('weight', 'sample_weight')) + ')' if weight_found else 'NO — will use unweighted statistics'}")
     print(f"  Data dictionary:         {m.data_dictionary_source or 'not found'}")
     if m.available_states:
         print(f"  Available states:        {len(m.available_states)} states")
+    agg_paths = []
+    if m.has_aggregate_by_state:
+        agg_paths.append("by_state")
+    if m.has_aggregate_national:
+        agg_paths.append("national")
+    print(f"  Aggregate paths:         {', '.join(agg_paths) if agg_paths else 'not found'}")
     print()

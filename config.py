@@ -68,6 +68,18 @@ class PipelineConfig:
     refresh_cache: bool = False   # re-download even if cached files exist
     cache_dir: str = "downloads"  # root directory for cached parquet files
 
+    # -- Aggregate Mode --
+    use_aggregate: bool = False
+    # When True, read from metadata_and_annual_results_aggregates/ instead of the
+    # per-sample county files. Much faster (one file per state or one file per upgrade
+    # nationally). Energy/EUI statistics are correct. Bill statistics are approximate
+    # (bills are summed across samples per archetype, not per-building values).
+    aggregate_scope: str = "state"
+    # "state"    → aggregates/by_state/ — one file per state per upgrade
+    # "national" → aggregates/national/ — one file per upgrade, entire US stock
+    #              (states filter still applied post-read in filter phase)
+    # Only used when use_aggregate=True.
+
     # -- Advanced --
     min_sample_warning: int = 100
     energy_unit: str = "kbtu_ft2"  # output EUI unit
