@@ -4,7 +4,8 @@
       "Bash(pip install:*)",
       "Bash(python -c \":*)",
       "Bash(python -m pip install s3fs pyarrow pandas numpy openpyxl boto3 -q)",
-      "Bash(python -c \"import s3fs; print\\(''''s3fs OK''''\\)\")"
+      "Bash(python -c \"import s3fs; print\\(''''s3fs OK''''\\)\")",
+      "Bash(python3)"
     ]
   }
 }
