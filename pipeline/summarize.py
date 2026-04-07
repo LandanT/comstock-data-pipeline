@@ -18,9 +18,11 @@ KWH_TO_KBTU = 3.412141633   # 1 kWh = 3.412141633 kBtu
 
 @dataclass
 class SummaryResults:
-    summary_table: pd.DataFrame          # wide: one row per upgrade
+    summary_table: pd.DataFrame           # wide: one row per upgrade (stock-level, all buildings)
     summary_long: Optional[pd.DataFrame]  # long: one row per upgrade × end-use × statistic
     building_detail: Optional[pd.DataFrame]
+    summary_compact: Optional[pd.DataFrame]    # focused end-use EUI table (Key Metrics)
+    summary_applicable: Optional[pd.DataFrame] # same as summary_table but applicable buildings only
     not_applicable_upgrades: list[int]
     filter_funnel: dict
     config_used: PipelineConfig
@@ -318,12 +320,31 @@ def summarize(
                        c in ("bldg_id", "building_id", "upgrade", "weight", "in.sqft", "in.floor_area_ft2")]
         building_detail = eui_df[[c for c in detail_cols if c in eui_df.columns]].copy()
 
+    # Compact summary (Key Metrics)
+    summary_compact = None
+    if config.include_compact_summary:
+        summary_compact = _build_compact_summary(summary_table, eui_cols, bill_cols)
+        log.info("Compact summary: %d rows × %d columns", len(summary_compact), len(summary_compact.columns))
+
+    # Applicable-only summary (Option B: matched baseline per upgrade)
+    summary_applicable = None
+    if config.include_applicable_summary:
+        summary_applicable = _build_applicable_summary(
+            eui_df, eui_cols, bill_cols, manifest, config, filtered
+        )
+        if summary_applicable is not None:
+            log.info("Applicable summary: %d rows", len(summary_applicable))
+        else:
+            log.info("Applicable summary: skipped (no applicability column)")
+
     _print_summary(summary_table, manifest, not_applicable_upgrades)
 
     return SummaryResults(
         summary_table=summary_table,
         summary_long=summary_long,
         building_detail=building_detail,
+        summary_compact=summary_compact,
+        summary_applicable=summary_applicable,
         not_applicable_upgrades=not_applicable_upgrades,
         filter_funnel=filtered.funnel,
         config_used=config,
@@ -331,6 +352,174 @@ def summarize(
         n_baseline_buildings=filtered.n_baseline_buildings,
         represented_area_ft2=filtered.represented_area_ft2,
     )
+
+
+def _build_compact_summary(
+    summary_table: pd.DataFrame,
+    eui_cols: list[str],
+    bill_cols: list[str],
+) -> pd.DataFrame:
+    """
+    Build a focused summary: median EUI per fuel×end_use, total site EUI, EUI savings,
+    total bill mean intensity median, and total bill savings.
+    """
+    id_cols = ["upgrade_id", "upgrade_name", "n_buildings", "n_applicable"]
+    keep = [c for c in id_cols if c in summary_table.columns]
+
+    # End-use median EUI columns (exclude total — that's added separately)
+    end_use_median_cols = [
+        c for c in summary_table.columns
+        if c.endswith(".eui_kbtu_ft2.median") and "site_energy" not in c
+    ]
+    keep += end_use_median_cols
+
+    # Total site EUI median
+    total_eui_median_cols = [
+        c for c in summary_table.columns
+        if "site_energy" in c and "total" in c and c.endswith(".eui_kbtu_ft2.median")
+    ]
+    keep += total_eui_median_cols
+
+    # EUI savings
+    for col in ("site_eui_savings_kbtu_ft2", "site_eui_savings_pct"):
+        if col in summary_table.columns:
+            keep.append(col)
+
+    # Total bill mean intensity median
+    bill_intensity_median_cols = [
+        c for c in summary_table.columns
+        if "total_bill" in c and "intensity" in c and c.endswith(".median")
+    ]
+    keep += bill_intensity_median_cols
+
+    # Total bill savings
+    for col in ("total_bill_savings", "total_bill_savings_pct"):
+        if col in summary_table.columns:
+            keep.append(col)
+
+    keep = [c for c in keep if c in summary_table.columns]
+    return summary_table[keep].copy()
+
+
+def _build_applicable_summary(
+    eui_df: pd.DataFrame,
+    eui_cols: list[str],
+    bill_cols: list[str],
+    manifest: DatasetManifest,
+    config: PipelineConfig,
+    filtered: FilteredData,
+) -> Optional[pd.DataFrame]:
+    """
+    Build a summary table using only applicable buildings per upgrade (Option B).
+    For each upgrade: baseline row uses buildings where applicability=True for THAT upgrade,
+    and the upgrade row uses the same set. Savings = matched_baseline_median - upgrade_median.
+    """
+    upgrade_col = "upgrade"
+    if upgrade_col not in eui_df.columns:
+        log.warning("No 'upgrade' column — skipping applicable summary")
+        return None
+    if "applicability" not in eui_df.columns:
+        log.warning("No 'applicability' column — skipping applicable summary")
+        return None
+
+    all_cols = eui_cols + bill_cols
+    weight_col = _resolve_weight_col(eui_df)
+    bldg_id_col = _resolve_bldg_id_col(eui_df)
+    use_w = config.use_weights and weight_col is not None
+
+    upgrade_ids = sorted(eui_df[upgrade_col].unique().tolist())
+    non_baseline_ids = [u for u in upgrade_ids if u != 0]
+
+    rows = []
+    for uid in non_baseline_ids:
+        upgrade_name = manifest.upgrades.get(uid, f"Upgrade {uid}")
+
+        # Applicable building IDs for this upgrade
+        upgrade_mask = (eui_df[upgrade_col] == uid) & (eui_df["applicability"].astype(bool))
+        upgrade_rows = eui_df[upgrade_mask]
+        n_applicable = len(upgrade_rows)
+
+        if n_applicable == 0:
+            # Still emit a row with NaN stats so the upgrade appears in output
+            row_baseline = {"upgrade_id": 0, "upgrade_name": "Baseline (matched)", "n_buildings": 0, "n_applicable": 0}
+            row_upgrade = {"upgrade_id": uid, "upgrade_name": upgrade_name, "n_buildings": 0, "n_applicable": 0}
+            for col in all_cols:
+                for stat in config.statistics:
+                    row_baseline[f"{col}.{stat}"] = np.nan
+                    row_upgrade[f"{col}.{stat}"] = np.nan
+            row_upgrade["site_eui_savings_kbtu_ft2"] = np.nan
+            row_upgrade["site_eui_savings_pct"] = np.nan
+            row_upgrade["total_bill_savings"] = np.nan
+            row_upgrade["total_bill_savings_pct"] = np.nan
+            rows.extend([row_baseline, row_upgrade])
+            continue
+
+        # Matched baseline: baseline rows for the same applicable buildings
+        if bldg_id_col:
+            applicable_ids = set(upgrade_rows[bldg_id_col].tolist())
+            baseline_rows = eui_df[
+                (eui_df[upgrade_col] == 0) & (eui_df[bldg_id_col].isin(applicable_ids))
+            ]
+        else:
+            # No building ID column — fall back to all baseline buildings
+            baseline_rows = eui_df[eui_df[upgrade_col] == 0]
+            log.warning("No bldg_id column for applicable summary; using full baseline for upgrade %d", uid)
+
+        baseline_weights = baseline_rows[weight_col] if (weight_col and weight_col in baseline_rows.columns) else None
+        upgrade_weights = upgrade_rows[weight_col] if (weight_col and weight_col in upgrade_rows.columns) else None
+
+        row_baseline = {
+            "upgrade_id": 0,
+            "upgrade_name": "Baseline (matched)",
+            "n_buildings": len(baseline_rows),
+            "n_applicable": len(baseline_rows),
+        }
+        row_upgrade = {
+            "upgrade_id": uid,
+            "upgrade_name": upgrade_name,
+            "n_buildings": n_applicable,
+            "n_applicable": n_applicable,
+        }
+
+        baseline_medians: dict[str, float] = {}
+        for col in all_cols:
+            if col not in eui_df.columns:
+                continue
+            b_stats = _compute_stats(baseline_rows[col], baseline_weights, config.statistics, use_w)
+            u_stats = _compute_stats(upgrade_rows[col], upgrade_weights, config.statistics, use_w)
+            for stat, val in b_stats.items():
+                row_baseline[f"{col}.{stat}"] = val
+            for stat, val in u_stats.items():
+                row_upgrade[f"{col}.{stat}"] = val
+            baseline_medians[col] = b_stats.get("median", np.nan)
+
+        # Savings vs matched baseline
+        total_eui_col = next(
+            (c for c in eui_cols if "site_energy.total" in c or ("site_energy" in c and "total" in c)),
+            eui_cols[0] if eui_cols else None,
+        )
+        if total_eui_col:
+            b_med = baseline_medians.get(total_eui_col, np.nan)
+            u_med = row_upgrade.get(f"{total_eui_col}.median", np.nan)
+            row_upgrade["site_eui_savings_kbtu_ft2"] = (b_med - u_med) if not (np.isnan(b_med) or np.isnan(u_med)) else np.nan
+            row_upgrade["site_eui_savings_pct"] = (row_upgrade["site_eui_savings_kbtu_ft2"] / b_med * 100) if b_med and b_med != 0 else np.nan
+
+        total_bill_col = next(
+            (c for c in bill_cols if "total_bill" in c and "intensity" in c),
+            next((c for c in bill_cols if "total_bill" in c), None),
+        )
+        if total_bill_col:
+            b_bill = baseline_medians.get(total_bill_col, np.nan)
+            u_bill = row_upgrade.get(f"{total_bill_col}.median", np.nan)
+            row_upgrade["total_bill_savings"] = (b_bill - u_bill) if not (np.isnan(b_bill) or np.isnan(u_bill)) else np.nan
+            row_upgrade["total_bill_savings_pct"] = (row_upgrade["total_bill_savings"] / b_bill * 100) if b_bill and b_bill != 0 else np.nan
+
+        rows.extend([row_baseline, row_upgrade])
+
+    if not rows:
+        return None
+
+    return pd.DataFrame(rows)
 
 
 def _build_long_format(summary_table: pd.DataFrame, manifest: DatasetManifest) -> pd.DataFrame:

@@ -1,5 +1,6 @@
 """Phase 2: Pull per-building annual results from S3."""
 import logging
+import os
 import re
 from dataclasses import dataclass
 
@@ -88,8 +89,53 @@ def _select_columns(manifest: DatasetManifest, all_file_columns: list[str]) -> l
     return [c for c in all_file_columns if c in wanted]
 
 
-def _read_parquet(fs: s3fs.S3FileSystem, path: str, columns: list[str]) -> pd.DataFrame:
-    log.debug("Reading s3://%s (%d columns)", path, len(columns))
+def _local_cache_path(s3_path: str, config: PipelineConfig) -> str:
+    """Map an S3 path to a local cache path under config.cache_dir/{release_name}/..."""
+    # s3_path looks like: oedi-data-lake/.../release_name/metadata_and_annual_results/...
+    # Strip the S3 bucket prefix and keep only from release_name onward
+    release = config.release_name
+    idx = s3_path.find(release)
+    if idx == -1:
+        # Fallback: use the full path as a flat filename
+        safe = s3_path.replace("/", "_").replace(":", "_")
+        return os.path.join(config.cache_dir, safe)
+    relative = s3_path[idx:]  # e.g. comstock_amy2018_release_3/metadata_and.../file.parquet
+    return os.path.join(config.cache_dir, relative)
+
+
+def _read_parquet_cached(
+    fs: s3fs.S3FileSystem,
+    s3_path: str,
+    columns: list[str],
+    config: PipelineConfig,
+) -> pd.DataFrame:
+    """Read a parquet file, using local cache if configured."""
+    if not config.use_cache:
+        return _read_parquet_s3(fs, s3_path, columns)
+
+    local_path = _local_cache_path(s3_path, config)
+
+    if not config.refresh_cache and os.path.exists(local_path):
+        log.debug("Cache hit: %s", local_path)
+        try:
+            return pd.read_parquet(local_path, columns=columns)
+        except Exception as e:
+            log.warning("Cache read failed (%s), fetching from S3: %s", local_path, e)
+
+    log.debug("Cache miss, fetching s3://%s", s3_path)
+    df = _read_parquet_s3(fs, s3_path, columns=None)  # fetch all columns, cache full file
+
+    os.makedirs(os.path.dirname(local_path), exist_ok=True)
+    df.to_parquet(local_path, index=False)
+    log.debug("Cached to %s", local_path)
+
+    # Now return only the requested columns
+    available = [c for c in columns if c in df.columns]
+    return df[available]
+
+
+def _read_parquet_s3(fs: s3fs.S3FileSystem, path: str, columns: list[str] | None) -> pd.DataFrame:
+    log.debug("Reading s3://%s", path)
     try:
         table = pq.read_table(f"s3://{path}", columns=columns, filesystem=fs)
         return table.to_pandas()
@@ -98,7 +144,21 @@ def _read_parquet(fs: s3fs.S3FileSystem, path: str, columns: list[str]) -> pd.Da
         raise
 
 
-def _get_file_columns(fs: s3fs.S3FileSystem, path: str) -> list[str]:
+def _read_parquet(fs: s3fs.S3FileSystem, path: str, columns: list[str]) -> pd.DataFrame:
+    """Legacy wrapper — reads directly from S3 without caching."""
+    return _read_parquet_s3(fs, path, columns)
+
+
+def _get_file_columns(fs: s3fs.S3FileSystem, path: str, config: PipelineConfig | None = None) -> list[str]:
+    """Read column names from parquet schema. Uses cached file if available."""
+    if config and config.use_cache and not config.refresh_cache:
+        local_path = _local_cache_path(path, config)
+        if os.path.exists(local_path):
+            try:
+                schema = pq.read_schema(local_path)
+                return schema.names
+            except Exception:
+                pass
     schema = pq.read_schema(f"s3://{path}", filesystem=fs)
     return schema.names
 
@@ -244,6 +304,14 @@ def pull(config: PipelineConfig, manifest: DatasetManifest) -> PulledData:
     fs = _get_fs()
     base_path = manifest.base_path
 
+    if config.use_cache:
+        if config.refresh_cache:
+            log.info("Cache mode: refresh (re-downloading all files to %s/)", config.cache_dir)
+        else:
+            log.info("Cache mode: enabled (reading from %s/ when available)", config.cache_dir)
+    else:
+        log.info("Cache mode: disabled (fetching directly from S3)")
+
     # Determine which upgrades to load
     requested_upgrades = config.upgrade_ids
     if requested_upgrades is None:
@@ -278,7 +346,7 @@ def pull(config: PipelineConfig, manifest: DatasetManifest) -> PulledData:
 
     # Read one file to determine actual available columns (may differ from manifest schema)
     first_file = file_list[0][1]
-    actual_columns = _get_file_columns(fs, first_file)
+    actual_columns = _get_file_columns(fs, first_file, config)
     columns_to_read = _select_columns(manifest, actual_columns)
     log.info("Selecting %d of %d columns", len(columns_to_read), len(actual_columns))
 
@@ -287,8 +355,8 @@ def pull(config: PipelineConfig, manifest: DatasetManifest) -> PulledData:
     loaded_upgrades = set()
 
     for uid, fpath in file_list:
-        log.info("Reading upgrade=%d from s3://%s", uid, fpath)
-        df = _read_parquet(fs, fpath, columns_to_read)
+        log.info("Reading upgrade=%d from %s", uid, fpath)
+        df = _read_parquet_cached(fs, fpath, columns_to_read, config)
         # Tag with upgrade ID if column missing
         if "upgrade" not in df.columns:
             df["upgrade"] = uid

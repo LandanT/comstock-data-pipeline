@@ -86,7 +86,12 @@ print(results.building_detail.head())
 | `output_dir` | `--output-dir` | `outputs/` | Output directory |
 | `output_formats` | `--output-formats` | `csv xlsx md` | Output formats |
 | `include_building_detail` | `--include-building-detail` | False | Export per-building EUI rows |
+| `include_compact_summary` | `--no-compact-summary` (to disable) | True | Key Metrics end-use EUI breakdown |
+| `include_applicable_summary` | `--no-applicable-summary` (to disable) | True | Applicable-only (matched baseline) summary |
 | `use_weights` | `--no-weights` (to disable) | True | Weighted population statistics |
+| `use_cache` | `--no-cache` (to disable) | True | Cache downloaded parquet files locally |
+| `refresh_cache` | `--refresh-cache` | False | Re-download files even if cached |
+| `cache_dir` | `--cache-dir` | `downloads/` | Root directory for local cache |
 
 ## Output Files
 
@@ -94,11 +99,15 @@ All files are written to `outputs/` (or `--output-dir`).
 
 | File | Description |
 |------|-------------|
-| `summary_wide.csv` / `.parquet` | One row per upgrade; columns for every end-use × statistic |
+| `summary_wide.csv` / `.parquet` | One row per upgrade; all end-use × statistic columns (stock-level) |
 | `summary_long.csv` / `.parquet` | Unpivoted (upgrade × metric × statistic) — Tableau-ready |
-| `building_detail.csv` / `.parquet` | Per-building EUIs in kBtu/ft² (optional) |
-| `comstock_summary.xlsx` | Multi-sheet workbook: Wide, Long, Building Detail, Upgrade Lookup, Metadata |
-| `summary_report.md` | Human-readable report with provenance header and key tables |
+| `summary_compact.csv` / `.parquet` | Focused table: median EUI per fuel×end_use, total EUI, EUI savings, bill savings |
+| `summary_applicable_wide.csv` / `.parquet` | Same as wide but filtered to applicable buildings per upgrade (matched baseline) |
+| `building_detail.csv` / `.parquet` | Per-building EUIs in kBtu/ft² (optional, `--include-building-detail`) |
+| `comstock_summary.xlsx` | Multi-sheet workbook: Wide, Long, Key Metrics, Summary (Applicable), Building Detail, Upgrade Lookup, Metadata |
+| `summary_report.md` | Human-readable report with provenance header, key tables, compact EUI breakdown, and applicable-only summary |
+
+**`downloads/` (cache):** Downloaded parquet files are cached here by default. The directory mirrors the S3 path structure so adding new states or upgrades only fetches missing files. Use `--no-cache` to bypass or `--refresh-cache` to force re-download.
 
 All outputs include a provenance header:
 ```

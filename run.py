@@ -98,6 +98,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Statistics to compute",
     )
 
+    # Summary options
+    p.add_argument(
+        "--no-compact-summary",
+        action="store_true",
+        help="Skip the compact Key Metrics end-use EUI breakdown",
+    )
+    p.add_argument(
+        "--no-applicable-summary",
+        action="store_true",
+        help="Skip the applicable-only (matched baseline) summary",
+    )
+
+    # Cache options
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Bypass local cache; always fetch from S3",
+    )
+    p.add_argument(
+        "--refresh-cache",
+        action="store_true",
+        help="Re-download all files even if cached, overwriting cache",
+    )
+    p.add_argument(
+        "--cache-dir",
+        default="downloads",
+        help="Root directory for cached parquet files (default: downloads/)",
+    )
+
     # Misc
     p.add_argument("--min-sample-warning", type=int, default=100, help="Warn if N below this threshold")
     p.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
@@ -128,10 +157,19 @@ def main():
         output_formats=args.output_formats,
         include_building_detail=args.include_building_detail,
         include_long_format=not args.no_long_format,
+        include_compact_summary=not args.no_compact_summary,
+        include_applicable_summary=not args.no_applicable_summary,
         use_weights=not args.no_weights,
         statistics=args.statistics,
+        use_cache=not args.no_cache,
+        refresh_cache=args.refresh_cache,
+        cache_dir=args.cache_dir,
         min_sample_warning=args.min_sample_warning,
     )
+
+    cache_status = "disabled (--no-cache)" if not config.use_cache else \
+                   f"refresh ({config.cache_dir}/)" if config.refresh_cache else \
+                   f"enabled ({config.cache_dir}/)"
 
     print(f"\nComStock Pipeline")
     print(f"  Release:        {config.release_year}/{config.release_name}")
@@ -141,6 +179,7 @@ def main():
     print(f"  States:         {config.states}")
     print(f"  Output dir:     {config.output_dir}")
     print(f"  Formats:        {config.output_formats}")
+    print(f"  Cache:          {cache_status}")
     print()
 
     run_pipeline(config)

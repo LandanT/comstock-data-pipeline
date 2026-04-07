@@ -58,6 +58,18 @@ def _write_csv(results: SummaryResults, output_dir: str) -> list[str]:
         paths.append(detail_path)
         log.info("Wrote %s", detail_path)
 
+    if results.summary_compact is not None:
+        compact_path = os.path.join(output_dir, "summary_compact.csv")
+        results.summary_compact.to_csv(compact_path, index=False)
+        paths.append(compact_path)
+        log.info("Wrote %s", compact_path)
+
+    if results.summary_applicable is not None:
+        applicable_path = os.path.join(output_dir, "summary_applicable_wide.csv")
+        results.summary_applicable.to_csv(applicable_path, index=False)
+        paths.append(applicable_path)
+        log.info("Wrote %s", applicable_path)
+
     return paths
 
 
@@ -77,6 +89,16 @@ def _write_parquet(results: SummaryResults, output_dir: str) -> list[str]:
         results.building_detail.to_parquet(detail_path, index=False)
         paths.append(detail_path)
 
+    if results.summary_compact is not None:
+        compact_path = os.path.join(output_dir, "summary_compact.parquet")
+        results.summary_compact.to_parquet(compact_path, index=False)
+        paths.append(compact_path)
+
+    if results.summary_applicable is not None:
+        applicable_path = os.path.join(output_dir, "summary_applicable_wide.parquet")
+        results.summary_applicable.to_parquet(applicable_path, index=False)
+        paths.append(applicable_path)
+
     return paths
 
 
@@ -90,11 +112,19 @@ def _write_excel(results: SummaryResults, output_dir: str) -> str:
         if results.summary_long is not None and not results.summary_long.empty:
             results.summary_long.to_excel(writer, sheet_name="Summary (Long)", index=False)
 
-        # Sheet 3: Building detail (optional)
+        # Sheet 3: Key Metrics (compact end-use EUI breakdown)
+        if results.summary_compact is not None:
+            results.summary_compact.to_excel(writer, sheet_name="Key Metrics", index=False)
+
+        # Sheet 4: Applicable-only summary
+        if results.summary_applicable is not None:
+            results.summary_applicable.to_excel(writer, sheet_name="Summary (Applicable)", index=False)
+
+        # Sheet 5: Building detail (optional)
         if results.building_detail is not None:
             results.building_detail.to_excel(writer, sheet_name="Building Detail", index=False)
 
-        # Sheet 4: Upgrade lookup
+        # Sheet 7: Upgrade lookup
         upgrades_df = pd.DataFrame(
             [(k, v) for k, v in results.manifest.upgrades.items()],
             columns=["upgrade_id", "upgrade_name"],
@@ -167,6 +197,51 @@ def _write_markdown(results: SummaryResults, output_dir: str) -> str:
         lines += [""]
 
     lines += [f"*Not-applicable upgrades: {results.not_applicable_upgrades}*", ""]
+
+    # Compact summary section: total EUI + savings only (end-use breakdown too wide for markdown)
+    if results.summary_compact is not None and not results.summary_compact.empty:
+        lines += ["## Key Metrics (Compact End-Use Breakdown)", ""]
+        compact = results.summary_compact
+        md_cols = ["upgrade_id", "upgrade_name", "n_buildings"]
+        total_eui_cols = [c for c in compact.columns if "site_energy" in c and "total" in c and c.endswith(".median")]
+        savings_cols = [c for c in compact.columns if c in ("site_eui_savings_kbtu_ft2", "site_eui_savings_pct")]
+        bill_cols_md = [c for c in compact.columns if "total_bill" in c and c.endswith(".median")]
+        bill_sav_cols = [c for c in compact.columns if c in ("total_bill_savings", "total_bill_savings_pct")]
+        md_cols += total_eui_cols[:1] + savings_cols + bill_cols_md[:1] + bill_sav_cols
+        md_cols = [c for c in md_cols if c in compact.columns]
+        if md_cols:
+            lines += ["| " + " | ".join(md_cols) + " |", "| " + " | ".join(["---"] * len(md_cols)) + " |"]
+            for _, row in compact[md_cols].iterrows():
+                cells = []
+                for c in md_cols:
+                    v = row[c]
+                    cells.append("—" if pd.isna(v) else (f"{v:.2f}" if isinstance(v, float) else str(v)))
+                lines.append("| " + " | ".join(cells) + " |")
+            lines += ["", "*Full end-use breakdown available in summary_compact.csv and Key Metrics Excel sheet.*", ""]
+
+    # Applicable-only summary section
+    if results.summary_applicable is not None and not results.summary_applicable.empty:
+        lines += ["## Applicable-Only Summary (Matched Baseline)", ""]
+        lines += [
+            "Each upgrade row uses only buildings where the upgrade was applicable.",
+            "The paired Baseline row is the same sub-population before the upgrade.",
+            ""
+        ]
+        app = results.summary_applicable
+        md_cols_app = ["upgrade_id", "upgrade_name", "n_buildings"]
+        total_eui_app = [c for c in app.columns if "site_energy" in c and "total" in c and c.endswith(".median")]
+        savings_app = [c for c in app.columns if c in ("site_eui_savings_kbtu_ft2", "site_eui_savings_pct")]
+        md_cols_app += total_eui_app[:1] + savings_app
+        md_cols_app = [c for c in md_cols_app if c in app.columns]
+        if md_cols_app:
+            lines += ["| " + " | ".join(md_cols_app) + " |", "| " + " | ".join(["---"] * len(md_cols_app)) + " |"]
+            for _, row in app[md_cols_app].iterrows():
+                cells = []
+                for c in md_cols_app:
+                    v = row[c]
+                    cells.append("—" if pd.isna(v) else (f"{v:.2f}" if isinstance(v, float) else str(v)))
+                lines.append("| " + " | ".join(cells) + " |")
+            lines += ["", "*Full applicable-only summary in summary_applicable_wide.csv.*", ""]
 
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

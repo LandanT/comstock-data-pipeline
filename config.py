@@ -59,6 +59,15 @@ class PipelineConfig:
         "median", "mean", "p25", "p75"
     ])
 
+    # -- Summary Options --
+    include_compact_summary: bool = True    # focused end-use EUI breakdown table (Key Metrics)
+    include_applicable_summary: bool = True  # repeat stats filtered to applicable buildings only
+
+    # -- Cache --
+    use_cache: bool = True        # use local parquet cache under cache_dir/
+    refresh_cache: bool = False   # re-download even if cached files exist
+    cache_dir: str = "downloads"  # root directory for cached parquet files
+
     # -- Advanced --
     min_sample_warning: int = 100
     energy_unit: str = "kbtu_ft2"  # output EUI unit
