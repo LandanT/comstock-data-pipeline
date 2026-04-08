@@ -307,7 +307,7 @@ def _find_files_aggregate_by_state(
 ) -> list[tuple[int, str]]:
     """Return (upgrade_id, file_path) tuples from aggregate by_state path."""
     results = []
-    agg_base = f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet"
+    agg_base = f"{base_path}/metadata_and_annual_results_aggregates/by_state/full/parquet"
     for state in state_abbrs:
         state_path = f"{agg_base}/state={state}"
         try:
@@ -318,7 +318,7 @@ def _find_files_aggregate_by_state(
         for uid in upgrade_ids:
             for fpath in files:
                 fname = fpath.split("/")[-1].lower()
-                if uid == 0 and "baseline" in fname and fname.endswith(".parquet"):
+                if uid == 0 and (f"upgrade{uid}_" in fname or "baseline" in fname) and fname.endswith(".parquet"):
                     results.append((uid, fpath))
                     break
                 elif uid != 0 and f"upgrade{uid:02d}" in fname and fname.endswith(".parquet"):
@@ -337,7 +337,7 @@ def _find_files_aggregate_national(
 ) -> list[tuple[int, str]]:
     """Return (upgrade_id, file_path) tuples from aggregate national path."""
     results = []
-    nat_path = f"{base_path}/metadata_and_annual_results_aggregates/national/parquet"
+    nat_path = f"{base_path}/metadata_and_annual_results_aggregates/national/full/parquet"
     try:
         files = fs.ls(nat_path, detail=False)
     except Exception:
@@ -346,7 +346,7 @@ def _find_files_aggregate_national(
     for uid in upgrade_ids:
         for fpath in files:
             fname = fpath.split("/")[-1].lower()
-            if uid == 0 and "baseline" in fname and fname.endswith(".parquet"):
+            if uid == 0 and (f"upgrade{uid}_" in fname or "baseline" in fname) and fname.endswith(".parquet"):
                 results.append((uid, fpath))
                 break
             elif uid != 0 and f"upgrade{uid:02d}" in fname and fname.endswith(".parquet"):
@@ -398,7 +398,7 @@ def pull(config: PipelineConfig, manifest: DatasetManifest) -> PulledData:
         elif manifest.has_aggregate_by_state:
             if not state_abbrs:
                 # No state filter — list all available aggregate state dirs
-                agg_base = f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet"
+                agg_base = f"{base_path}/metadata_and_annual_results_aggregates/by_state/full/parquet"
                 dirs = []
                 try:
                     dirs = fs.ls(agg_base, detail=False)

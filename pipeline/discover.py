@@ -191,18 +191,18 @@ def _find_sample_file(
     # If aggregate mode, try aggregate paths first for schema
     if config and config.use_aggregate:
         if config.aggregate_scope == "national" and structure["has_aggregate_national"]:
-            nat_path = f"{base_path}/metadata_and_annual_results_aggregates/national/parquet"
-            files = [f for f in _list_dir(fs, nat_path) if f.endswith(".parquet") and "baseline" in f.lower()]
+            nat_path = f"{base_path}/metadata_and_annual_results_aggregates/national/full/parquet"
+            files = [f for f in _list_dir(fs, nat_path) if f.endswith(".parquet") and ("upgrade0_" in f.lower() or "baseline" in f.lower())]
             if files:
                 return files[0]
         if structure["has_aggregate_by_state"]:
             states_to_try = preferred_states or []
             if not states_to_try:
-                dirs = _list_dir(fs, f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet")
+                dirs = _list_dir(fs, f"{base_path}/metadata_and_annual_results_aggregates/by_state/full/parquet")
                 states_to_try = [d.split("state=")[-1] for d in dirs if "state=" in d][:3]
             for state in states_to_try[:3]:
-                state_path = f"{base_path}/metadata_and_annual_results_aggregates/by_state/parquet/state={state}"
-                files = [f for f in _list_dir(fs, state_path) if f.endswith(".parquet") and "baseline" in f.lower()]
+                state_path = f"{base_path}/metadata_and_annual_results_aggregates/by_state/full/parquet/state={state}"
+                files = [f for f in _list_dir(fs, state_path) if f.endswith(".parquet") and ("upgrade0_" in f.lower() or "baseline" in f.lower())]
                 if files:
                     return files[0]
 
