@@ -78,11 +78,13 @@ s3://oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-buildin
     │       └── {STATE}_{FIPS}_upgrade{N}.parquet
     ├── by_state_and_puma/
     ├── by_state/
-    │   ├── baic/parquet/state={XX}
-    |   ├── full/parquet/state={XX}                # county-level partition (2025 R3+, preferred)
-    │       └── {STATE}_upgrade{N}_agg.parquet
+    │   ├── basic/parquet/state={XX}/{STATE}_upgrade{N}_agg_basic.parquet
+    │   └── full/parquet/state={XX}/{STATE}_upgrade{N}_agg.parquet    ← use this
     └── national/
+        ├── basic/parquet/upgrade{N}_agg_basic.parquet
+        └── full/parquet/upgrade{N}_agg.parquet
 ```
+**Aggregate filename convention:** `N` is NOT zero-padded (`upgrade1`, not `upgrade01`). Baseline is `upgrade0` (no "baseline" string in filename). Example: `DC_upgrade0_agg.parquet`, `DC_upgrade1_agg.parquet`.
 
 ### 2.3 CRITICAL: Non-Aggregate vs Aggregate Data
 
@@ -100,8 +102,8 @@ In ComStock, each building archetype (`bldg_id`) is **sampled multiple times** t
 - Additive fields (`weight`, `calc.weighted.*`, `out.utility_bills.*`) are **summed** across sampled instances
 - Invariant metadata (`in.*`) is carried forward; sample-specific columns (PUMA, tract, EJ flags, utility IDs) are dropped
 - These are **NOT** grouped across different buildings — they aggregate over the sampling dimension only
-- Faster to load, but **cannot compute medians, percentiles, or sub-county filters**
-- Use only as an optional fast-path for coarse total-energy summaries
+- Faster to load. **Can compute weighted medians and percentiles across building archetypes** using the `weight` column. Sub-county filters not possible (geographic sampling dimension collapsed).
+- Use as a fast-path for state- or national-level summaries when per-sample geographic variability is not needed
 
 **Pipeline default:** Always use non-aggregate data (`metadata_and_annual_results/`). The preferred partition for 2025 R3+ is `by_state_and_county/full/`. When a state filter is provided, restrict to matching `state={XX}` directories; otherwise iterate all available states.
 
@@ -113,11 +115,15 @@ In ComStock, each building archetype (`bldg_id`) is **sampled multiple times** t
 │       ├── basic/parquet/state={XX}/county={FIPS}/
 │       └── full/parquet/state={XX}/county={FIPS}/
 │           └── {STATE}_{FIPS}_upgrade{N}.parquet
-└── metadata_and_annual_results_aggregates/   ← AGGREGATE (one row per bldg_id, not for distributions)
+└── metadata_and_annual_results_aggregates/   ← AGGREGATE (one row per bldg_id, weighted medians valid)
     ├── by_state_and_county/
     ├── by_state_and_puma/
     ├── by_state/
+    │   ├── basic/parquet/state={XX}/{STATE}_upgrade{N}_agg_basic.parquet
+    │   └── full/parquet/state={XX}/{STATE}_upgrade{N}_agg.parquet    ← pipeline uses this
     └── national/
+        ├── basic/parquet/upgrade{N}_agg_basic.parquet
+        └── full/parquet/upgrade{N}_agg.parquet
 ```
 
 ### 2.4 `upgrades_lookup.json`
