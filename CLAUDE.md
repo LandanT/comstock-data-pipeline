@@ -72,9 +72,15 @@ s3://oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-buildin
 │   │       └── {STATE}_{FIPS}_upgrade{N}.parquet
 │   └── national/parquet/
 └── metadata_and_annual_results_aggregates/        # AGGREGATE: one row per bldg_id (not for distribution stats)
-    ├── by_state_and_county/
+    ├── by_state_and_county/                       # county-level partition (2025 R3+, preferred)
+    │   ├── basic/parquet/state={XX}/county={FIPS}/
+    │   └── full/parquet/state={XX}/county={FIPS}/
+    │       └── {STATE}_{FIPS}_upgrade{N}.parquet
     ├── by_state_and_puma/
     ├── by_state/
+    │   ├── baic/parquet/state={XX}
+    |   ├── full/parquet/state={XX}                # county-level partition (2025 R3+, preferred)
+    │       └── {STATE}_upgrade{N}_agg.parquet
     └── national/
 ```
 
