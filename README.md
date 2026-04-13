@@ -4,7 +4,7 @@ A standalone Python pipeline for extracting, filtering, and summarizing End-Use 
 
 ## Overview
 
-The pipeline pulls per-building annual simulation results from S3, filters by building stock characteristics (type, vintage, climate zone, state), and produces population-level summary statistics for every energy end-use and every upgrade scenario. Output is ready for Tableau, Excel, or downstream analysis.
+The pipeline pulls per-building annual simulation results from S3, filters by building stock characteristics (type, vintage, climate zone, state, heating fuel, HVAC system), and produces population-level summary statistics for every energy end-use and every upgrade scenario. Output is ready for Tableau, Excel, or downstream analysis.
 
 ## Installation
 
@@ -125,8 +125,8 @@ All files are written to `outputs/` (or `--output-dir`).
 All outputs include a provenance header:
 ```
 Dataset: comstock_amy2018_release_3 (2025)
-Filters: LargeOffice + MediumOffice | vintage –1980 | CZ 4A | District of Columbia
-Baseline buildings: 180
+Filters: LargeOffice + MediumOffice | vintage –1980 | CZ 4A | District of Columbia | HVAC: PackagedTerminalAirConditioner | Fuel: NaturalGas
+Baseline buildings: 120
 Energy unit: kBtu/ft²
 Generated: 2026-03-30
 ```
