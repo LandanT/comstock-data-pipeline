@@ -43,6 +43,15 @@ python run.py \
   --release-name comstock_amy2018_release_2 \
   --building-types RetailStripmall RetailStandalone \
   --states Colorado
+
+# DC offices with specific HVAC and heating fuel
+python run.py \
+  --release-year 2025 \
+  --release-name comstock_amy2018_release_3 \
+  --building-types LargeOffice MediumOffice \
+  --states "District of Columbia" \
+  --hvac-systems "PackagedTerminalAirConditioner" "SplitSystemAirConditioner" \
+  --heating-fuels "NaturalGas" "Electricity"
 ```
 
 ## Python API
@@ -83,6 +92,8 @@ print(results.building_detail.head())
 | `climate_zones` | `--climate-zones` | None | ASHRAE climate zones (e.g. `4A 5A`) |
 | `states` | `--states` | None | Full state names or 2-letter abbreviations |
 | `upgrade_ids` | `--upgrade-ids` | None (all) | Specific upgrade IDs to include |
+| `hvac_systems` | `--hvac-systems` | None (all) | HVAC system types (e.g., `PackagedTerminalAirConditioner`, `SplitSystemAirConditioner`, `ForcedAirFurnace`, 'etc') |
+| `heating_fuels` | `--heating-fuels` | None (all) | Primary heating fuel (e.g., `NaturalGas`, `Electricity`, `FuelOil`, `Propane`) |
 | `output_dir` | `--output-dir` | `outputs/` | Output directory |
 | `output_formats` | `--output-formats` | `csv xlsx md` | Output formats |
 | `include_building_detail` | `--include-building-detail` | False | Export per-building EUI rows |

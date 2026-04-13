@@ -26,6 +26,10 @@ def _provenance_lines(results: SummaryResults) -> list[str]:
         filters_parts.append(f"CZ {', '.join(cfg.climate_zones)}")
     if cfg.states:
         filters_parts.append(", ".join(cfg.states))
+    if cfg.hvac_systems:
+        filters_parts.append(f"HVAC: {', '.join(cfg.hvac_systems)}")
+    if cfg.heating_fuels:
+        filters_parts.append(f"Fuel: {', '.join(cfg.heating_fuels)}")
 
     return [
         f"Dataset: {cfg.release_name} ({cfg.release_year})",

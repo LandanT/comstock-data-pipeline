@@ -32,6 +32,8 @@ _FILTER_INPUT_COLS = [
     "in.as_simulated_state_name",
     "in.sqft",
     "in.floor_area_ft2",
+    "in.heating_fuel",
+    "in.hvac_system",
 ]
 
 

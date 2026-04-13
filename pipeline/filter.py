@@ -27,6 +27,8 @@ class FilteredData:
     climate_zone_col: Optional[str] = None
     state_col: Optional[str] = None
     sqft_col: Optional[str] = None
+    heating_fuel_col: Optional[str] = None
+    hvac_system_col: Optional[str] = None
 
 
 # --- Column resolution helpers ---
@@ -59,6 +61,8 @@ def _resolve_columns(df: pd.DataFrame) -> dict[str, Optional[str]]:
         "sqft": _find_col(df, ["in.sqft", "in.floor_area_ft2"]),
         "weight": _find_col(df, ["weight", "sample_weight"]),
         "bldg_id": _find_col(df, ["bldg_id", "building_id"]),
+        "heating_fuel": _find_col(df, ["in.heating_fuel"]),
+        "hvac_system": _find_col(df, ["in.hvac_system"]),
     }
 
 
@@ -247,6 +251,27 @@ def apply_filters(config: PipelineConfig, pulled: PulledData) -> FilteredData:
     elif config.states and not cols["state"]:
         warnings.append("State filter requested but no state column found.")
 
+    # --- Heating fuel filter ---
+    if config.heating_fuels and cols["heating_fuel"]:
+        hf_col = cols["heating_fuel"]
+        mask = baseline_df[hf_col].isin(config.heating_fuels)
+        baseline_df = baseline_df[mask]
+        funnel[f"After heating fuel filter ({', '.join(config.heating_fuels)})"] = len(baseline_df)
+        log.info("After heating fuel filter: %d", len(baseline_df))
+    elif config.heating_fuels and not cols["heating_fuel"]:
+        warnings.append("Heating fuel filter requested but no heating fuel column found.")
+
+    # --- HVAC system filter ---
+    if config.hvac_systems and cols["hvac_system"]:
+        hvac_col = cols["hvac_system"]
+        mask = baseline_df[hvac_col].isin(config.hvac_systems)
+        baseline_df = baseline_df[mask]
+        funnel[f"After HVAC system filter ({', '.join(config.hvac_systems)})"] = len(baseline_df)
+        log.info("After HVAC system filter: %d", len(baseline_df))
+    elif config.hvac_systems and not cols["hvac_system"]:
+        warnings.append("HVAC system filter requested but no HVAC system column found.")
+
+    #--- Final baseline count and represented area ---
     n_baseline = len(baseline_df)
     funnel["Final baseline building models"] = n_baseline
 
@@ -302,6 +327,8 @@ def apply_filters(config: PipelineConfig, pulled: PulledData) -> FilteredData:
         climate_zone_col=cols["climate_zone"],
         state_col=cols["state"],
         sqft_col=cols["sqft"],
+        heating_fuel_col=cols["heating_fuel"],
+        hvac_system_col=cols["hvac_system"],
     )
 
 

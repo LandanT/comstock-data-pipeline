@@ -47,6 +47,14 @@ class PipelineConfig:
     # None = all upgrades; otherwise list of upgrade IDs (0 = baseline)
     upgrade_ids: Optional[list[int]] = None
 
+    # Heating fuel type (e.g. "Electricity", "Natural Gas")
+    # Maps to: in.heating_fuel
+    heating_fuels: Optional[list[str]] = None
+
+    # HVAC system type (e.g. "VAV with reheat", "PSZ-AC")
+    # Maps to: in.hvac_system
+    hvac_systems: Optional[list[str]] = None
+
     # -- Output --
     output_dir: str = "outputs"
     output_formats: list[str] = field(default_factory=lambda: ["csv", "xlsx", "md"])

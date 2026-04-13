@@ -166,6 +166,8 @@ The core data unit is a **single sampled instance of a building archetype for a 
 - `in.ashrae_iecc_climate_zone_2006` — assigned climate zone, e.g., `"4A"` (**use this**, not `as_simulated_*`)
 - `in.as_simulated_state_name` — full state name, e.g., `"District of Columbia"` (not abbreviations)
 - `in.sqft` (or `in.sqft..ft2` with unit suffix) — building floor area in ft²
+- `in.heating_fuel` — primary heating fuel, e.g., `"NaturalGas"`, `"Electricity"`, `"FuelOil"`, `"Propane"`
+- `in.hvac_system` — HVAC system type, e.g., `"PackagedTerminalAirConditioner"`, `"SplitSystemAirConditioner"`, `"ForcedAirFurnace"`
 
 **Annual end-use energy (the core output):**
 
@@ -230,7 +232,7 @@ comstock_pipeline/
 
 **Phase 2 — Pull (`pull.py`):** Read only needed columns. For 2025 R3+, iterate `by_state_and_county/full/parquet/state={XX}/county={FIPS}/` files. For legacy releases, fall back to `by_state/` or `national/`. Always read non-aggregate path. Return DataFrame with all energy, intensity, bill, and filter columns preserved.
 
-**Phase 3 — Filter (`filter.py`):** Apply building type → vintage → climate zone → state filters in order. Report filter funnel with sample counts at each step. Match vintage categories by parsing year ranges from category strings (e.g., `"1946 to 1959"` → upper=1959). Compute `represented_area_ft2 = sum(in.sqft × weight)` for filtered baseline buildings.
+**Phase 3 — Filter (`filter.py`):** Apply building type → vintage → climate zone → state → heating fuel → HVAC system filters in order. Report filter funnel with sample counts at each step. Match vintage categories by parsing year ranges from category strings (e.g., `"1946 to 1959"` → upper=1959). Compute `represented_area_ft2 = sum(in.sqft × weight)` for filtered baseline buildings.
 
 **Phase 4 — Summarize (`summarize.py`):** Convert per-sample energy to EUI (prefer intensity columns). Compute weighted median, mean, p25, p75 across samples using `weight` column. Compute savings vs baseline per end-use. Detect applicability from `applicability` boolean column.
 
@@ -245,7 +247,9 @@ After vintage filter (max=1980):      18,500
   Matched vintages: ['Before 1946', '1946 to 1959', '1960 to 1969', '1970 to 1979']
 After climate zone filter:             1,200  (4A)
 After state filter:                      180  (DC)
-Final baseline building models:          180
+After heating fuel filter:               150  (NaturalGas)
+After HVAC system filter:                120  (PackagedTerminalAirConditioner)
+Final baseline building models:          120
 Total weight (represented floor area): 12,400,000 ft²
 Upgrade scenarios available:              65
 ```
@@ -274,6 +278,12 @@ class PipelineConfig:
     # The by_state_and_county S3 partition uses abbreviations — pipeline maps between them
     states: Optional[list[str]] = field(default_factory=lambda: ["District of Columbia"])
     upgrade_ids: Optional[list[int]] = None  # None = all upgrades
+
+    # ── Building Equipment Filters ──
+    # Maps to: in.heating_fuel
+    heating_fuels: Optional[list[str]] = None
+    # Maps to: in.hvac_system
+    hvac_systems: Optional[list[str]] = None
 
     # ── Output ──
     output_dir: str = "outputs"
@@ -309,6 +319,8 @@ class PipelineConfig:
 | `weight` | **`weight`** ✓ | **Confirmed present** in non-aggregate per-building files. Each sample row carries weight = number of real buildings represented. NOT in data dictionary but confirmed in actual Parquet. |
 | `in.vintage` | **`in.vintage`** ✓ | Enums: `"Before 1946"`, `"1946 to 1959"`, `"1960 to 1969"`, `"1970 to 1979"`, `"1980 to 1989"`, `"1990 to 1999"`, `"2000 to 2012"`, `"2013 to 2018"` |
 | `upgrade` | **`upgrade`** ✓ | ID including `0` for Baseline |
+| `in.heating_fuel` | **`in.heating_fuel`** | Enums: `"NaturalGas"`, `"Electricity"`, `"FuelOil"`, `"Propane"`, etc. |
+| `in.hvac_system` | **`in.hvac_system`** | Enums: `"PackagedTerminalAirConditioner"`, `"SplitSystemAirConditioner"`, `"ForcedAirFurnace"`, etc. |
 
 ### Vintage Matching Logic
 

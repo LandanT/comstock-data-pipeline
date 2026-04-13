@@ -75,6 +75,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Specific upgrade IDs to include (0=baseline). Default: all.",
     )
+    p.add_argument(
+        "--hvac-systems",
+        nargs="+",
+        default=None,
+        help="HVAC system types to include (e.g. PackagedTerminalAirConditioner SplitSystemAirConditioner)",
+    )
+    p.add_argument(
+        "--heating-fuels",
+        nargs="+",
+        default=None,
+        help="Primary heating fuel types to include (e.g. NaturalGas Electricity FuelOil Propane)",
+    )
 
     # Output
     p.add_argument("--output-dir", default="outputs", help="Output directory")
@@ -173,6 +185,8 @@ def main():
         climate_zones=args.climate_zones,
         states=args.states,
         upgrade_ids=args.upgrade_ids,
+        hvac_systems=args.hvac_systems,
+        heating_fuels=args.heating_fuels,
         output_dir=args.output_dir,
         output_formats=args.output_formats,
         include_building_detail=args.include_building_detail,
@@ -199,6 +213,8 @@ def main():
     print(f"  Vintage:        min={config.vintage_min}  max={config.vintage_max}")
     print(f"  Climate zones:  {config.climate_zones}")
     print(f"  States:         {config.states}")
+    print(f"  HVAC systems:   {config.hvac_systems}")
+    print(f"  Heating fuels:  {config.heating_fuels}")
     print(f"  Output dir:     {config.output_dir}")
     print(f"  Formats:        {config.output_formats}")
     print(f"  Cache:          {cache_status}")
